@@ -15,6 +15,7 @@ from twitter_scraper import Profile
 
 import requests
 import json
+import GetOldTweets3 as got
 
 
 MONGO_URL="mongodb://Bloverse:uaQTRSp6d9czpcCg@64.227.12.212:27017/social_profiling?authSource=admin&readPreference=primary&appname=MongoDB%20Compass&ssl=false"
@@ -47,7 +48,7 @@ def load_entities():
         all=[a for b in entities for a in b]
         entities=list(set(all))
         all_entities.append(entities)
-    all_entities=[a for b in all_entities for a in b][:10]
+    all_entities=[a for b in all_entities for a in b][:24]
     print("len: ", len(all_entities))
     return all_entities
 
@@ -91,6 +92,7 @@ def get_users(new_ent):
     
     
     for ent in new_ent:
+        #print(ent)
         try:
             url='https://twitter.com/search?q=' +ent+ '&src=typed_query&f=user'
 
@@ -119,8 +121,9 @@ def get_users(new_ent):
 
             #save_entity= [ent for a in range(len(handle))]
 
-
-            df=get_meta_data(ent, handle)
+            hashtags=generate_hashtags(ent)
+            #print(hashtags)
+            df=get_meta_data(ent, handle, hashtags)
             print(df)
             save_to_mongodb(df)
         except:
@@ -128,11 +131,22 @@ def get_users(new_ent):
 
     #return 
 
-
+def generate_hashtags(ent):
+    ent= list(ent.split(" ")) 
+    #print(ent)
+    try:
+        tweetCriteria = got.manager.TweetCriteria().setSince("2020-08-01")\
+                                                    .setUntil("2020-07-10")\
+                                                    .setMaxTweets(100)
+        hashtags=[[tweet.hashtags for tweet in got.manager.TweetManager.getTweets(tweetCriteria.setQuerySearch('#' + a)) if tweet.favorites > 10]  for a in ent]
+    except:
+        pass
+    hashtags=hashtags[0]
+    return hashtags
 
     
 
-def get_meta_data(ent, handle):
+def get_meta_data(ent, handle, hashtags):
     if len(handle)==0:
         
         meta_data=[]
@@ -144,8 +158,9 @@ def get_meta_data(ent, handle):
 
                 df=pd.DataFrame(meta_data)
                 df=df[df['followers_count']>5000]
-                df=df[['name', 'username', 'followers_count']]
+                df=df[['name', 'username', 'followers_count', 'profile_photo']]
                 df['entity']= [ent for c in range(len(df))]
+                df['hashtags']= [hashtags for c in range(len(df))]
 
             except:
                 pass
@@ -160,8 +175,9 @@ def get_meta_data(ent, handle):
 
                 df=pd.DataFrame(meta_data)
                 df=df[df['followers_count']>5000]
-                df=df[['name', 'username', 'followers_count']]
+                df=df[['name', 'username', 'followers_count', 'profile_photo']]
                 df['entity']= [ent for c in range(len(df))]
+                df['hashtags']= [hashtags for c in range(len(df))]
 
             except:
                 pass
@@ -174,24 +190,24 @@ def save_to_mongodb(df):
     
     
     # Load in the instagram_user collection from MongoDB
-    twitter_user_collection = db.twitter_user_collection # similarly if 'testCollection' did not already exist, Mongo would create it
+    twitter_user_collections = db.twitter_user_collections # similarly if 'testCollection' did not already exist, Mongo would create it
     
-    cur = twitter_user_collection.find() ##check the number before adding
+    cur = twitter_user_collections.find() ##check the number before adding
     print('We had %s instagram_user entries at the start' % cur.count())
     
      ##search for the entities in the processed colection and store it as a list
-    twitter_user=list(twitter_user_collection.find({},{ "_id": 0, "username": 1})) 
+    twitter_user=list(twitter_user_collections.find({},{ "_id": 0, "username": 1})) 
     twitter_user=list((val for dic in twitter_user for val in dic.values()))
 
 
     #loop throup the handles, and add only new enteries
-    for entity,name, username, followers_count in df[['entity', 'name','username', 'followers_count']].itertuples(index=False):
+    for entity,name, username, followers_count, hashtag, photo in df[['entity', 'name','username', 'followers_count', 'hashtags', "profile_photo"]].itertuples(index=False):
         if username  not in twitter_user:
-            twitter_user_collection.insert_one({"entity": entity,"full_name":name, "username":username, "followers_count":followers_count}) ####save the df to the collection
+            twitter_user_collections.insert_one({"entity": entity,"full_name":name, "username":username, "followers_count":followers_count, "hashtags":hashtag, "profile_photo":photo}) ####save the df to the collection
     
     
   
-    cur = twitter_user_collection.find() ##check the number after adding
+    cur = twitter_user_collections.find() ##check the number after adding
     print('We have %s spacy entity entries at the end' % cur.count())
     
 
